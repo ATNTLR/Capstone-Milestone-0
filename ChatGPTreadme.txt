@@ -1,2 +1,2 @@
-prompt used for 1: in return jsonify(symbol=portfolio_dict[symbol]['values'])
-I want symbol to show the actual symbols name, but it just shows as symbol. how do i change this
+1 - For the following data structure (stock_info_truncated), please help me
+make all numbers floats rounded to 2 and make volume an int
