@@ -8,16 +8,26 @@ CORS(app)
 
 portfolio_dict = {"total_value": 0, "symbols":{}}
 
+
+#load the users portfolio
+def user_database():
+    return {
+  "user1": {
+    "AAPL": 10,
+    "GOOGL": 5,
+    "AMZN": 3
+  }
+}
+
 #temporary redirect to user1 page for added convenience
 @app.route('/')
 def home():
     return redirect(url_for('portfolio_info', userID='user1'))
 
+
 @app.route('/<userID>')
 def portfolio_info(userID):
-    portfolio_path = 'portfoliotest.json'
-    with open(portfolio_path) as file:
-        portfolio = json.load(file)
+    portfolio = user_database()
     new_symbols = {}
     for holding in portfolio[userID]:
         API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={holding}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
