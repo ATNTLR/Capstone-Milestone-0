@@ -1,10 +1,61 @@
-from flask import Flask, jsonify, redirect, url_for
+from flask import Flask, jsonify, redirect, url_for, request
 from flask_cors import CORS
 import json
 import requests
+import oracledb
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Identity, create_engine, select, join, inspect, text
+from sqlalchemy.pool import NullPool
+from sqlalchemy.orm import relationship, backref, sessionmaker, declarative_base
+from flask_sqlalchemy import SQLAlchemy
+
+
 
 app = Flask(__name__)
 CORS(app)
+
+un = 'ADMIN'
+pw = 'Mycapstonedatabase1'
+dsn = '(description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1521)(host=adb.eu-madrid-1.oraclecloud.com))(connect_data=(service_name=gd299c42c87507e_capstoneantoine_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))'
+hostname, service_name = ["adb.eu-madrid-1.oraclecloud.com", "gd299c42c87507e_capstoneantoine_high.adb.oraclecloud.com"]
+port = 1521
+
+"""
+# Standalone connection
+engine = create_engine(
+    f'oracle+oracledb://{un}:{pw}@',
+    thick_mode=None,
+    connect_args={
+        "host": hostname,
+        "port": port,
+        "service_name": service_name
+    }
+)
+"""
+
+
+pool = oracledb.create_pool(user=un, password=pw,
+                            dsn=dsn)
+
+
+
+engine = create_engine("oracle+oracledb://", creator=pool.acquire, poolclass=NullPool, echo=True)
+
+# The base class which our objects will be defined on.
+Base = declarative_base()
+
+class USERS(Base):
+    __tablename__ = 'USERS'
+    USERID = Column(Integer, Identity(start=1), primary_key=True)
+    USERNAME = Column(String(255))
+    PASSWORD = Column(String(255))
+
+class USER_STOCKS(Base):
+    __tablename__ = 'USER_STOCKS'
+    USERID = Column(Integer, ForeignKey('USERS.USERID'), primary_key=True)
+    STOCKSYMBOL = Column(String(255), primary_key=True)
+    QUANTITY = Column(Integer)
+
+Base.metadata.create_all(engine)
 
 portfolio_dict = {"total_value": 0, "symbols":{}}
 
@@ -23,6 +74,31 @@ def user_database():
 @app.route('/')
 def home():
     return redirect(url_for('portfolio_info', userID='user1'))
+
+@app.route('/modify_portfolio/<userID>', methods=['POST'])
+def modify_portfolio(userID):
+    data = request.json
+    add_or_remove = data.get('operation')
+    symbol = data.get('symbol')
+    quantity = data.get('quantity', 0)
+    portfolio = user_database()[userID]
+
+    if add_or_remove == 'add':
+        if symbol in portfolio:
+            portfolio[symbol] += quantity
+        else:
+            portfolio[symbol] = quantity
+    elif add_or_remove == 'remove':
+        if symbol in portfolio and portfolio[symbol] >= quantity:
+            portfolio[symbol] -= quantity
+            if portfolio[symbol] == 0:
+                del portfolio[symbol]
+        else:
+            return jsonify(error='Not enough quantity to remove or symbol does not exist'), 400
+
+    # Assuming you have a function to save the updated portfolio back to the database
+    save_user_portfolio(userID, portfolio)
+    return jsonify(success=True, portfolio=portfolio)
 
 
 @app.route('/<userID>')
