@@ -16,22 +16,7 @@ CORS(app)
 un = 'ADMIN'
 pw = 'Mycapstonedatabase1'
 dsn = '(description= (retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1521)(host=adb.eu-madrid-1.oraclecloud.com))(connect_data=(service_name=gd299c42c87507e_capstoneantoine_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))'
-hostname, service_name = ["adb.eu-madrid-1.oraclecloud.com", "gd299c42c87507e_capstoneantoine_high.adb.oraclecloud.com"]
 port = 1521
-
-"""
-# Standalone connection
-engine = create_engine(
-    f'oracle+oracledb://{un}:{pw}@',
-    thick_mode=None,
-    connect_args={
-        "host": hostname,
-        "port": port,
-        "service_name": service_name
-    }
-)
-"""
-
 
 pool = oracledb.create_pool(user=un, password=pw,
                             dsn=dsn)
@@ -61,64 +46,128 @@ portfolio_dict = {"total_value": 0, "symbols":{}}
 
 
 #load the users portfolio
-def user_database():
-    return {
-  "user1": {
+user_stocks = {
     "AAPL": 10,
     "GOOGL": 5,
     "AMZN": 3
-  }
 }
+
+Session = sessionmaker(bind=engine)
+
+#create our default test user if it does not exist
+def create_user_if_not_exists(username, user_stocks):
+    session = Session()
+    #check if the user already exists
+    user = session.query(USERS).filter_by(USERNAME=username).first()
+    
+    if user is None:
+        #user doesn't exist so create it
+        new_user = USERS(USERNAME=username, PASSWORD='defaultpassword')
+        session.add(new_user)
+        session.flush()  # This will assign an ID to new_user without committing the transaction
+        
+        #add the user's stocks
+        for symbol, quantity in user_stocks.items():
+            new_stock = USER_STOCKS(USERID=new_user.USERID, STOCKSYMBOL=symbol, QUANTITY=quantity)
+            session.add(new_stock)
+        
+        session.commit() 
+        print(f"User {username} created with stocks.")
+    else:
+        print(f"User {username} already exists.")
+    
+    session.close()
+
+
+create_user_if_not_exists('user1', user_stocks)
 
 #temporary redirect to user1 page for added convenience
 @app.route('/')
 def home():
     return redirect(url_for('portfolio_info', userID='user1'))
 
+#reusable way to check if a symbol exists
+def symbol_exists(symbol):
+    API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
+    response = requests.get(API_url)
+    data = response.json()
+    
+    #check for the expected response 
+    if "Time Series (Daily)" in data:
+        return True
+    else:
+        return False
+
 @app.route('/modify_portfolio/<userID>', methods=['POST'])
 def modify_portfolio(userID):
+    session = Session()
     data = request.json
     add_or_remove = data.get('operation')
     symbol = data.get('symbol')
     quantity = data.get('quantity', 0)
-    portfolio = user_database()[userID]
+    
+    if symbol_exists(symbol) == False:
+        return jsonify(error='Symbol does not exist')
+
+    user = session.query(USERS).filter_by(USERNAME=userID).first()
+
+    #fetch or create stock holding for user
+    user_stock = session.query(USER_STOCKS).filter_by(USERID=user.USERID, STOCKSYMBOL=symbol).first()
 
     if add_or_remove == 'add':
-        if symbol in portfolio:
-            portfolio[symbol] += quantity
+        if user_stock:
+            user_stock.QUANTITY += quantity
         else:
-            portfolio[symbol] = quantity
+            #create a new stock holding for the user
+            new_stock = USER_STOCKS(USERID=user.USERID, STOCKSYMBOL=symbol, QUANTITY=quantity)
+            session.add(new_stock)
     elif add_or_remove == 'remove':
-        if symbol in portfolio and portfolio[symbol] >= quantity:
-            portfolio[symbol] -= quantity
-            if portfolio[symbol] == 0:
-                del portfolio[symbol]
+        if user_stock and user_stock.QUANTITY >= quantity:
+            user_stock.QUANTITY -= quantity
+            if user_stock.QUANTITY == 0:
+                session.delete(user_stock)
         else:
-            return jsonify(error='Not enough quantity to remove or symbol does not exist'), 400
+            session.close()
+            return jsonify(error='Not enough quantity to remove')
 
-    # Assuming you have a function to save the updated portfolio back to the database
-    save_user_portfolio(userID, portfolio)
-    return jsonify(success=True, portfolio=portfolio)
+    session.commit()
+    session.close()
+
+    return jsonify(success=True, message="Portfolio updated successfully.")
 
 
 @app.route('/<userID>')
 def portfolio_info(userID):
-    portfolio = user_database()
+    session = Session()
+    portfolio_dict = {"total_value": 0, "symbols": {}}
+
+    user = session.query(USERS).filter_by(USERNAME=userID).first()
+    if not user:
+        return jsonify(error="User not found"), 404
+
+    #fetch the stocks owned by user
+    user_stocks = session.query(USER_STOCKS).filter_by(USERID=user.USERID).all()
+
     new_symbols = {}
-    for holding in portfolio[userID]:
-        API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={holding}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
+    for user_stock in user_stocks:
+        symbol = user_stock.STOCKSYMBOL
+        quantity = user_stock.QUANTITY
+        API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
         response = requests.get(API_url)
-        #if we successfully obtained the information, continue the code
+        
         if response.status_code == 200:
             value = response.json()['Global Quote']['05. price']
-            new_symbols[holding] = {'quantity': portfolio[userID][holding], 'value': round(float(value), 2)}
+            new_symbols[symbol] = {'quantity': quantity, 'value': round(float(value), 2)}
         else:
             return jsonify(error='Something went wrong with Alpha Vantage')
+    
     portfolio_dict['symbols'].update(new_symbols)
     total = 0
     for symbol in portfolio_dict['symbols']:
         total += portfolio_dict['symbols'][symbol]['quantity'] * portfolio_dict['symbols'][symbol]['value']
     portfolio_dict['total_value'] = round(total, 2)
+
+    session.close() 
     return jsonify(portfolio_dict)
 
 @app.route('/stockinfo/<symbol>')
