@@ -25,7 +25,7 @@ pool = oracledb.create_pool(user=un, password=pw,
 
 engine = create_engine("oracle+oracledb://", creator=pool.acquire, poolclass=NullPool, echo=True)
 
-# The base class which our objects will be defined on.
+#the base class which our objects will be defined on.
 Base = declarative_base()
 
 class USERS(Base):
@@ -64,7 +64,7 @@ def create_user_if_not_exists(username, user_stocks):
         #user doesn't exist so create it
         new_user = USERS(USERNAME=username, PASSWORD='defaultpassword')
         session.add(new_user)
-        session.flush()  # This will assign an ID to new_user without committing the transaction
+        session.flush()
         
         #add the user's stocks
         for symbol, quantity in user_stocks.items():
@@ -84,11 +84,31 @@ create_user_if_not_exists('user1', user_stocks)
 #temporary redirect to user1 page for added convenience
 @app.route('/')
 def home():
-    return redirect(url_for('portfolio_info', userID='user1'))
+    return redirect(url_for('portfolio_info'))
+
+#reusable way to fetch updated portfolio
+def get_updated_portfolio(userID):
+    session = Session()
+    user_stocks = session.query(USER_STOCKS).join(USERS).filter(USERS.USERNAME == userID).all()
+    portfolio_dict = {"total_value": 0, "symbols": {}}
+
+    for user_stock in user_stocks:
+        symbol = user_stock.STOCKSYMBOL
+        quantity = user_stock.QUANTITY
+        API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
+        response = requests.get(API_url)
+        if response.status_code == 200:
+            data = response.json()
+            value = float(data['Global Quote']['05. price'])
+            portfolio_dict['symbols'][symbol] = {'quantity': quantity, 'value': round(value, 2)}
+            portfolio_dict['total_value'] += quantity * value
+
+    session.close()
+    return portfolio_dict
 
 #reusable way to check if a symbol exists
 def symbol_exists(symbol):
-    API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
+    API_url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
     response = requests.get(API_url)
     data = response.json()
     
@@ -98,8 +118,10 @@ def symbol_exists(symbol):
     else:
         return False
 
-@app.route('/modify_portfolio/<userID>', methods=['POST'])
-def modify_portfolio(userID):
+
+@app.route('/modify_portfolio', methods=['POST'])
+def modify_portfolio():
+    userID = 'user1'
     session = Session()
     data = request.json
     add_or_remove = data.get('operation')
@@ -107,6 +129,7 @@ def modify_portfolio(userID):
     quantity = data.get('quantity', 0)
     
     if symbol_exists(symbol) == False:
+        session.close()
         return jsonify(error='Symbol does not exist')
 
     user = session.query(USERS).filter_by(USERNAME=userID).first()
@@ -131,13 +154,18 @@ def modify_portfolio(userID):
             return jsonify(error='Not enough quantity to remove')
 
     session.commit()
+
+    #get the updated portfolio so we can return it
+    updated_portfolio = get_updated_portfolio(userID)
+
     session.close()
 
-    return jsonify(success=True, message="Portfolio updated successfully.")
+    return jsonify(updated_portfolio)
 
 
-@app.route('/<userID>')
-def portfolio_info(userID):
+@app.route('/overview')
+def portfolio_info():
+    userID = 'user1'
     session = Session()
     portfolio_dict = {"total_value": 0, "symbols": {}}
 
