@@ -1,0 +1,24 @@
+.app-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  padding: 20px;
+}
+
+.title-total-value {
+  grid-column: 1 / -1;
+}
+
+.modify-portfolio {
+  grid-column: 1 / -1;
+  background-color: lightgray;
+  padding: 20px;
+}
+
+.stock-list {
+  grid-column: 1 / -1;
+}
+
+.stock-details {
+  display: none;
+}

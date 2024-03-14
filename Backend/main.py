@@ -1,14 +1,10 @@
 from flask import Flask, jsonify, redirect, url_for, request
 from flask_cors import CORS
-import json
 import requests
 import oracledb
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Identity, create_engine, select, join, inspect, text
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import relationship, backref, sessionmaker, declarative_base
-from flask_sqlalchemy import SQLAlchemy
-
-
 
 app = Flask(__name__)
 CORS(app)
@@ -86,26 +82,6 @@ create_user_if_not_exists('user1', user_stocks)
 def home():
     return redirect(url_for('portfolio_info'))
 
-#reusable way to fetch updated portfolio
-def get_updated_portfolio(userID):
-    session = Session()
-    user_stocks = session.query(USER_STOCKS).join(USERS).filter(USERS.USERNAME == userID).all()
-    portfolio_dict = {"total_value": 0, "symbols": {}}
-
-    for user_stock in user_stocks:
-        symbol = user_stock.STOCKSYMBOL
-        quantity = user_stock.QUANTITY
-        API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
-        response = requests.get(API_url)
-        if response.status_code == 200:
-            data = response.json()
-            value = float(data['Global Quote']['05. price'])
-            portfolio_dict['symbols'][symbol] = {'quantity': quantity, 'value': round(value, 2)}
-            portfolio_dict['total_value'] += quantity * value
-
-    session.close()
-    return portfolio_dict
-
 #reusable way to check if a symbol exists
 def symbol_exists(symbol):
     API_url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
@@ -119,48 +95,51 @@ def symbol_exists(symbol):
         return False
 
 
-@app.route('/modify_portfolio', methods=['POST'])
+@app.route('/modifyPortfolio', methods=['POST'])
 def modify_portfolio():
     userID = 'user1'
     session = Session()
     data = request.json
-    add_or_remove = data.get('operation')
-    symbol = data.get('symbol')
+    operation = data.get('operation').upper() 
+    symbol = data.get('stock_symbol').upper()  
     quantity = data.get('quantity', 0)
     
-    if symbol_exists(symbol) == False:
+    #check if the symbol exists
+    if not symbol_exists(symbol):
         session.close()
-        return jsonify(error='Symbol does not exist')
+        return jsonify(error='Invalid stock symbol'), 400
 
     user = session.query(USERS).filter_by(USERNAME=userID).first()
 
-    #fetch or create stock holding for user
+    #fetch or create stock holding for the user
     user_stock = session.query(USER_STOCKS).filter_by(USERID=user.USERID, STOCKSYMBOL=symbol).first()
 
-    if add_or_remove == 'add':
+    if operation == 'ADD':
         if user_stock:
             user_stock.QUANTITY += quantity
         else:
-            #create a new stock holding for the user
+            #create new stock holding for the user
             new_stock = USER_STOCKS(USERID=user.USERID, STOCKSYMBOL=symbol, QUANTITY=quantity)
             session.add(new_stock)
-    elif add_or_remove == 'remove':
+    elif operation == 'REMOVE':
         if user_stock and user_stock.QUANTITY >= quantity:
             user_stock.QUANTITY -= quantity
             if user_stock.QUANTITY == 0:
                 session.delete(user_stock)
         else:
+            #stock not found or quantity exceeds what we have
+            if not user_stock:
+                errorMsg = 'Stock not found in portfolio'
+            else:
+                errorMsg = 'Requested quantity exceeds stocks in portfolio'
             session.close()
-            return jsonify(error='Not enough quantity to remove')
+            return jsonify(error=errorMsg), 400
 
     session.commit()
-
-    #get the updated portfolio so we can return it
-    updated_portfolio = get_updated_portfolio(userID)
-
     session.close()
+    #redirect to overview to render updated portfolio
+    return redirect(url_for('portfolio_info'))
 
-    return jsonify(updated_portfolio)
 
 
 @app.route('/overview')

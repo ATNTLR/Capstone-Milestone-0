@@ -2,43 +2,47 @@ import React from "react";
 import { Dropdown } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
 
-//dropdown inspired from GPT, 2 in doc
-//history prop defaults to empty array to handle history data not immediately available
 const StockInfo = ({ symbol, details, history = [] }) => {
   return (
     <div>
       <h2>{symbol}</h2>
       <p>Quantity: {details.quantity}</p>
       <p>Value: {details.value}</p>
+      {
+        // ChatGPTreadme 2, I asked for help to make the dropdown
+      }
       <Dropdown>
-        <Dropdown.Toggle variant="success" id="dropdown-basic">
+        <Dropdown.Toggle variant="success" id={`dropdown-${symbol}`}>
           Historical Data
         </Dropdown.Toggle>
 
-        <Dropdown.Menu style={{ maxHeight: "300px", overflowY: "scroll" }}>
-          {history?.map(([date, data], index) => (
-            <Dropdown.Item key={index} as="div">
-              <p>
-                <strong>Date:</strong> {date}
-              </p>
-              <p>
-                <strong>Open:</strong> {data["1. open"]}
-              </p>
-              <p>
-                <strong>High:</strong> {data["2. high"]}
-              </p>
-              <p>
-                <strong>Low:</strong> {data["3. low"]}
-              </p>
-              <p>
-                <strong>Close:</strong> {data["4. close"]}
-              </p>
-              <p>
-                <strong>Volume:</strong> {data["5. volume"]}
-              </p>
-              <hr />
-            </Dropdown.Item>
-          ))}
+        <Dropdown.Menu
+          style={{ padding: 0, maxWidth: "100%", overflowY: "scroll" }}
+        >
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Open</th>
+                <th>High</th>
+                <th>Low</th>
+                <th>Close</th>
+                <th>Volume</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map(([date, data], index) => (
+                <tr key={index}>
+                  <td>{date}</td>
+                  <td>{data["1. open"]}</td>
+                  <td>{data["2. high"]}</td>
+                  <td>{data["3. low"]}</td>
+                  <td>{data["4. close"]}</td>
+                  <td>{data["5. volume"]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Dropdown.Menu>
       </Dropdown>
     </div>
