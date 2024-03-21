@@ -9,10 +9,10 @@ function App() {
   const [symbol, setSymbol] = useState("");
   const [quantity, setQuantity] = useState(0);
   const [operation, setOperation] = useState("add");
-  const [selectedStock, setSelectedStock] = useState(null); //showing additional info
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showRegister, setShowRegister] = useState(false);
 
   const fetchPortfolio = () => {
@@ -96,6 +96,11 @@ function App() {
 
   const handleRegister = (event) => {
     event.preventDefault();
+    //check if passwords match
+    if (password !== confirmPassword) {
+      alert("Passwords don't match");
+      return;
+    }
     fetch("https://mcsbt-integration-antoine.nw.r.appspot.com/register", {
       method: "POST",
       credentials: "include",
@@ -149,10 +154,6 @@ function App() {
       });
   };
 
-  const handleSelectStock = (symbol) => {
-    setSelectedStock(stockHistory[symbol]);
-  };
-
   return (
     <div className="app-container">
       {!isLoggedIn ? (
@@ -171,8 +172,14 @@ function App() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <input
+                type="password"
+                placeholder="Re-enter Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
               <button type="submit">Register</button>
-              <button type="button" onClick={() => setShowRegister(false)}>
+              <button onClick={() => setShowRegister(false)}>
                 Back to Login
               </button>
             </form>
@@ -201,51 +208,55 @@ function App() {
         </>
       ) : (
         <>
-          <div className="title-total-value">
-            <h1>User Portfolio</h1>
-            <h2>Total Portfolio Value: {portfolio && portfolio.total_value}</h2>
-          </div>
-          <div className="modify-portfolio">
-            <input
-              type="text"
-              placeholder="Symbol"
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-            />
-            <input
-              type="number"
-              placeholder="Quantity"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-            />
-            <div>
-              <label>
-                <input
-                  type="radio"
-                  value="add"
-                  checked={operation === "add"}
-                  onChange={(e) => setOperation(e.target.value)}
-                />{" "}
-                Add
-              </label>
-              <label>
-                <input
-                  /* ChatGPTreadme 3 radio button help */
-                  type="radio"
-                  value="remove"
-                  checked={operation === "remove"}
-                  onChange={(e) => setOperation(e.target.value)}
-                />{" "}
-                Remove
-              </label>
+          <div className="header-area">
+            <div className="left-header">
+              <h1>User Portfolio</h1>
+              <h2>
+                Total Portfolio Value: {portfolio && portfolio.total_value}
+              </h2>
             </div>
-            <button onClick={handleModifyPortfolio}>Modify Portfolio</button>
+            <div className="modify-portfolio">
+              <input
+                type="text"
+                placeholder="Symbol"
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+              />
+              <input
+                type="number"
+                placeholder="Quantity"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+              />
+              <div>
+                <label>
+                  <input
+                    /* ChatGPTreadme 3 radio button help */
+                    type="radio"
+                    value="add"
+                    checked={operation === "add"}
+                    onChange={(e) => setOperation(e.target.value)}
+                  />{" "}
+                  Add
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    value="remove"
+                    checked={operation === "remove"}
+                    onChange={(e) => setOperation(e.target.value)}
+                  />{" "}
+                  Remove
+                </label>
+              </div>
+              <button onClick={handleModifyPortfolio}>Modify Portfolio</button>
+            </div>
           </div>
           <div className="stock-list">
             {portfolio &&
               portfolio.symbols &&
               Object.entries(portfolio.symbols).map(([symbol, details]) => (
-                <div key={symbol} onClick={() => handleSelectStock(symbol)}>
+                <div key={symbol}>
                   <StockInfo
                     symbol={symbol}
                     details={details}
@@ -253,13 +264,8 @@ function App() {
                   />
                 </div>
               ))}
+            <button onClick={handleLogout}>Logout</button>
           </div>
-          {selectedStock && (
-            <div className="stock-details">
-              {/* nothing to render yet, functionality will come later */}
-            </div>
-          )}
-          <button onClick={handleLogout}>Logout</button>
         </>
       )}
     </div>

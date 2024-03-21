@@ -6,3 +6,6 @@ display the item's details below the dropdown.
 3 - can you show me how to add in my jsx code those circular 
 buttons you can select for multiple options, but make them 
 mutually exclusive please
+4 - please help me make my button in the following code React
+to being hovered, I have a css file for this js code.
+(with code snipped of modify portfolio pasted in)

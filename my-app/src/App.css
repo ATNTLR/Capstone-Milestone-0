@@ -3,16 +3,39 @@
   grid-template-columns: 1fr;
   gap: 20px;
   padding: 20px;
+  background-color: #f0f0f0;
 }
 
-.title-total-value {
+.header-area {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   grid-column: 1 / -1;
+  margin-bottom: 20px;
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.left-header {
+  display: flex;
+  flex-direction: column;
 }
 
 .modify-portfolio {
-  grid-column: 1 / -1;
-  background-color: lightgray;
+  background-color: #f0f0f0;
   padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* ChatGPTreadme 4 used chatGPT to figure out hover */
+.modify-portfolio button:hover,
+form button:hover {
+  cursor: pointer;
+  background-color: #d9d9d9;
+  transition: background-color 0.3s ease;
 }
 
 .stock-list {
