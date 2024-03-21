@@ -3,17 +3,18 @@ from flask_cors import CORS
 from flask import session as flask_session
 import requests
 import oracledb
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Identity, create_engine, select, join, inspect, text
+from sqlalchemy import Column, Integer, String, ForeignKey, Identity, create_engine
 from sqlalchemy.pool import NullPool
-from sqlalchemy.orm import relationship, backref, sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 app.config.update(
     SECRET_KEY='unsecure_key',
-    SESSION_COOKIE_SECURE=True,  # Ensure cookies are only sent over HTTPS
-    SESSION_COOKIE_SAMESITE='None',  # Allow cookies to be sent with cross-site requests
+    SESSION_COOKIE_SECURE=True,  #ensure cookies are only sent over HTTPS
+    SESSION_COOKIE_SAMESITE='None',  #allow cookies to be sent with cross-site requests
 )
 app.secret_key = 'unsecure_key'
 
@@ -65,21 +66,22 @@ def add_cors_headers(response):
 def login():
     if request.method == 'OPTIONS':
         return add_cors_headers(make_response())
+
     session = Session()
     username = request.json.get('username')
     password = request.json.get('password')
     
     user = session.query(USERS).filter_by(USERNAME=username).first()
-    if user and user.PASSWORD == password:
-        flask_session['user_id'] = user.USERID  # Simple session management
+    if user and check_password_hash(user.PASSWORD, password):
+        flask_session['user_id'] = user.USERID  #simple session management
         return jsonify({'message': 'Login successful'}), 200
     else:
-        return jsonify({'error': 'Invalid username or password'}), 401
+        return jsonify({'error': 'Login failed: Username or Password incorrect'}), 401
 
 @app.route('/logout', methods=['GET'])
 def logout():
-    flask_session.pop('user_id', None)  # Logout by removing user from session
-    return jsonify({'message': 'Logout successful'}), 200
+    flask_session.pop('user_id', None)  #logout by removing user from session
+    return jsonify({'message': 'Logged out.'}), 200
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -88,13 +90,15 @@ def register():
         password = request.json.get('password')
         
         session = Session()
-        # Check if username already exists
+        #check if username already exists
         existing_user = session.query(USERS).filter_by(USERNAME=username).first()
         if existing_user:
             return jsonify({'error': 'Username already exists'}), 409
+        
+        #hash password
+        hashed_password = generate_password_hash(password)
 
-        # Create new user without adding predefined stocks
-        new_user = USERS(USERNAME=username, PASSWORD=password)
+        new_user = USERS(USERNAME=username, PASSWORD=hashed_password)
         session.add(new_user)
         session.commit()
         
