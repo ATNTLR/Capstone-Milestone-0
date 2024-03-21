@@ -53,8 +53,12 @@ function App() {
   };
 
   useEffect(() => {
-    fetchPortfolio();
-  }, []);
+    if (isLoggedIn) {
+      fetchPortfolio();
+    } else {
+      setPortfolio({ total_value: 0, symbols: {} });
+    }
+  }, [isLoggedIn]);
 
   const handleLogin = (event) => {
     event.preventDefault();
