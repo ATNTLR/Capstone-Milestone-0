@@ -1,5 +1,6 @@
-from flask import Flask, jsonify, redirect, url_for, request
+from flask import Flask, jsonify, redirect, url_for, request, make_response
 from flask_cors import CORS
+from flask import session as flask_session
 import requests
 import oracledb
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Identity, create_engine, select, join, inspect, text
@@ -7,7 +8,15 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import relationship, backref, sessionmaker, declarative_base
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+
+app.config.update(
+    SECRET_KEY='unsecure_key',
+    SESSION_COOKIE_SECURE=True,  # Ensure cookies are only sent over HTTPS
+    SESSION_COOKIE_SAMESITE='None',  # Allow cookies to be sent with cross-site requests
+)
+app.secret_key = 'unsecure_key'
+
 
 un = 'ADMIN'
 pw = 'Mycapstonedatabase1'
@@ -41,41 +50,60 @@ Base.metadata.create_all(engine)
 portfolio_dict = {"total_value": 0, "symbols":{}}
 
 
-#load the users portfolio
-user_stocks = {
-    "AAPL": 10,
-    "GOOGL": 5,
-    "AMZN": 3
-}
-
 Session = sessionmaker(bind=engine)
 
-#create our default test user if it does not exist
-def create_user_if_not_exists(username, user_stocks):
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    if origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    return response
+
+@app.route('/login', methods=['POST', 'OPTIONS'])
+def login():
+    if request.method == 'OPTIONS':
+        return add_cors_headers(make_response())
     session = Session()
-    #check if the user already exists
+    username = request.json.get('username')
+    password = request.json.get('password')
+    
     user = session.query(USERS).filter_by(USERNAME=username).first()
-    
-    if user is None:
-        #user doesn't exist so create it
-        new_user = USERS(USERNAME=username, PASSWORD='defaultpassword')
-        session.add(new_user)
-        session.flush()
-        
-        #add the user's stocks
-        for symbol, quantity in user_stocks.items():
-            new_stock = USER_STOCKS(USERID=new_user.USERID, STOCKSYMBOL=symbol, QUANTITY=quantity)
-            session.add(new_stock)
-        
-        session.commit() 
-        print(f"User {username} created with stocks.")
+    if user and user.PASSWORD == password:
+        flask_session['user_id'] = user.USERID  # Simple session management
+        return jsonify({'message': 'Login successful'}), 200
     else:
-        print(f"User {username} already exists.")
-    
-    session.close()
+        return jsonify({'error': 'Invalid username or password'}), 401
 
+@app.route('/logout', methods=['GET'])
+def logout():
+    flask_session.pop('user_id', None)  # Logout by removing user from session
+    return jsonify({'message': 'Logout successful'}), 200
 
-create_user_if_not_exists('user1', user_stocks)
+@app.route('/register', methods=['POST'])
+def register():
+    try:
+        username = request.json.get('username')
+        password = request.json.get('password')
+        
+        session = Session()
+        # Check if username already exists
+        existing_user = session.query(USERS).filter_by(USERNAME=username).first()
+        if existing_user:
+            return jsonify({'error': 'Username already exists'}), 409
+
+        # Create new user without adding predefined stocks
+        new_user = USERS(USERNAME=username, PASSWORD=password)
+        session.add(new_user)
+        session.commit()
+        
+        return jsonify({'message': 'Registration successful'}), 201
+    except Exception as e:
+        return jsonify({'error': 'An internal error occurred'}), 500
+    finally:
+        session.close()
+
 
 #temporary redirect to user1 page for added convenience
 @app.route('/')
@@ -97,29 +125,30 @@ def symbol_exists(symbol):
 
 @app.route('/modifyPortfolio', methods=['POST'])
 def modify_portfolio():
-    userID = 'user1'
+    #check for user session
+    if 'user_id' not in flask_session:
+        return jsonify({'error': 'User not logged in modify'})
+
+    user_id = flask_session['user_id']
     session = Session()
     data = request.json
-    operation = data.get('operation').upper() 
-    symbol = data.get('stock_symbol').upper()  
-    quantity = data.get('quantity', 0)
-    
+    operation = data.get('operation').upper()
+    symbol = data.get('stock_symbol').upper()
+    quantity = int(data.get('quantity', 0))  
+
     #check if the symbol exists
     if not symbol_exists(symbol):
-        session.close()
-        return jsonify(error='Invalid stock symbol'), 400
-
-    user = session.query(USERS).filter_by(USERNAME=userID).first()
+        return jsonify({'error': 'Invalid stock symbol'}), 400
 
     #fetch or create stock holding for the user
-    user_stock = session.query(USER_STOCKS).filter_by(USERID=user.USERID, STOCKSYMBOL=symbol).first()
+    user_stock = session.query(USER_STOCKS).filter_by(USERID=user_id, STOCKSYMBOL=symbol).first()
 
     if operation == 'ADD':
         if user_stock:
             user_stock.QUANTITY += quantity
         else:
             #create new stock holding for the user
-            new_stock = USER_STOCKS(USERID=user.USERID, STOCKSYMBOL=symbol, QUANTITY=quantity)
+            new_stock = USER_STOCKS(USERID=user_id, STOCKSYMBOL=symbol, QUANTITY=quantity)
             session.add(new_stock)
     elif operation == 'REMOVE':
         if user_stock and user_stock.QUANTITY >= quantity:
@@ -140,41 +169,52 @@ def modify_portfolio():
     #redirect to overview to render updated portfolio
     return redirect(url_for('portfolio_info'))
 
-
-
 @app.route('/overview')
 def portfolio_info():
-    userID = 'user1'
+    #check if a user is logged in
+    if 'user_id' not in flask_session:
+        return jsonify({'error': 'User not logged in overview'}), 401
+
+    user_id = flask_session['user_id']
     session = Session()
+    
+    #initialize the structure for portfolio response
     portfolio_dict = {"total_value": 0, "symbols": {}}
 
-    user = session.query(USERS).filter_by(USERNAME=userID).first()
-    if not user:
-        return jsonify(error="User not found"), 404
+    try:
+        #fetch the stocks owned by logged-in user
+        user_stocks = session.query(USER_STOCKS).filter_by(USERID=user_id).all()
 
-    #fetch the stocks owned by user
-    user_stocks = session.query(USER_STOCKS).filter_by(USERID=user.USERID).all()
+        if not user_stocks:
+            # If the user has no stocks, return an empty portfolio structure
+            return jsonify(portfolio_dict), 200
 
-    new_symbols = {}
-    for user_stock in user_stocks:
-        symbol = user_stock.STOCKSYMBOL
-        quantity = user_stock.QUANTITY
-        API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
-        response = requests.get(API_url)
-        
-        if response.status_code == 200:
-            value = response.json()['Global Quote']['05. price']
-            new_symbols[symbol] = {'quantity': quantity, 'value': round(float(value), 2)}
-        else:
-            return jsonify(error='Something went wrong with Alpha Vantage')
+        #if user has stocks, fetch their current values and calculate total portfolio value
+        for user_stock in user_stocks:
+            symbol = user_stock.STOCKSYMBOL
+            quantity = user_stock.QUANTITY
+            API_url = f'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=WMDORK6BEVBQ7K7S&outputsize=compact&datatype=json'
+            response = requests.get(API_url)
+            
+            if response.status_code == 200:
+                data = response.json()
+                price = float(data['Global Quote']['05. price'])
+                total_value = price * quantity
+                portfolio_dict['symbols'][symbol] = {'quantity': quantity, 'value': round(price, 2)}
+                portfolio_dict['total_value'] += total_value
+            else:
+                app.logger.error(f'Failed to fetch stock data for {symbol}')
+                continue  #skip this stock and continue with others
+
+        portfolio_dict['total_value'] = round(portfolio_dict['total_value'], 2)
+
+    except Exception as e:
+        app.logger.error(f'An error occurred while fetching the portfolio: {e}')
+        return jsonify({'error': 'Failed to fetch portfolio information'}), 500
     
-    portfolio_dict['symbols'].update(new_symbols)
-    total = 0
-    for symbol in portfolio_dict['symbols']:
-        total += portfolio_dict['symbols'][symbol]['quantity'] * portfolio_dict['symbols'][symbol]['value']
-    portfolio_dict['total_value'] = round(total, 2)
+    finally:
+        session.close()
 
-    session.close() 
     return jsonify(portfolio_dict)
 
 @app.route('/stockinfo/<symbol>')
@@ -201,4 +241,3 @@ def stock_info(symbol):
 
 if __name__ == '__main__':
         app.run(debug=True, port=5000)
-
